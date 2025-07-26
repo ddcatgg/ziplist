@@ -106,8 +106,6 @@ def process_ignore_rules(rules, source_dir_abs):
             # 将匹配到的文件添加到忽略集合中
             for found_abs_path in matched_paths:
                 if os.path.isfile(found_abs_path):
-                    if not isinstance(found_abs_path, str):
-                        found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
                     ignored_files.add(found_abs_path)
 
     return ignored_files
@@ -151,12 +149,6 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
                 # 使用辅助函数计算文件在压缩包中的路径
                 relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
                 arcname = calculate_arcname(relative_found_path, source_pattern, dest_pattern)
-
-                # 确保路径编码正确
-                if not isinstance(found_abs_path, str):
-                    found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
-                if not isinstance(arcname, str):
-                    arcname = arcname.decode(sys.getfilesystemencoding())
 
                 # 检查文件是否被忽略规则排除
                 if found_abs_path in ignored_files:
@@ -272,8 +264,8 @@ def create_zip_file(files_to_add, output_zip_path):
                     print("警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖 '{2}'。".format(
                         arcname, source_path, arcname_sources[arcname]))
                     has_duplicates = True
-            # 在 Python 2 中，zipfile 需要 byte string
-            zipf.write(source_path, arcname.encode('utf-8'))
+            # 打包进 zip 文件
+            zipf.write(source_path, arcname)
             arcname_sources[arcname] = source_path
 
     if has_duplicates:
