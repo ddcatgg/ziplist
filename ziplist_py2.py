@@ -326,6 +326,7 @@ def setup_test_environment(base_dir="test_project"):
         "Sounds/b.mp3",
         "Sounds/sub/c.ogg",
         "Sounds/sub/another.wav"
+        "Sounds/测试/新建 文本文档.txt"
     ]
 
     for p in paths_to_create:
@@ -337,29 +338,29 @@ def setup_test_environment(base_dir="test_project"):
             f.write("this is {0}".format(p))
     print("测试文件创建完毕。")
 
-def create_test_ziplist(filepath=".ziplist"):
+def create_test_ziplist(filepath="abc.ziplist"):
     """创建一个用于测试的 .ziplist 文件。"""
     print("--- 正在创建测试配置文件 at '{0}' ---".format(filepath))
     content = """
 # 这是一个演示 '!' 忽略语法的 .ziplist 文件
 
 # 1. 首先，包含 Sounds 目录下的所有内容，保留其内部目录结构
-Sounds/**
+test_project/Sounds/**
 
 # 2. 然后，使用 '!' 忽略掉所有的 .wav 文件
 #    注意 **/*.wav 可以匹配任意子目录下的 .wav 文件
 !**/*.wav
 
-# 3. 再忽略掉 Debug 目录下的所有内容
-Debug/**
+# 3. 打包 Debug 目录下的所有内容
+test_project/Debug/**
 
-# 4. 但是，我还是需要 Debug 目录下的 AgentExe.exe，并重命名它
+# 4. 但是，我还将需要 Debug 目录下的 AgentExe.exe 再复制一份，并重命名它
 #    因为 'Debug/**' 已经把它添加进来了，而 '!' 规则没有匹配它，所以它依然在列表里
 #    这里我们用一个更精确的规则覆盖它，并给它一个新的目标路径
-Debug/AgentExe.exe -> bin/Agent.exe
+test_project/Debug/AgentExe.exe -> bin/Agent.exe
 
 # 5. 最后，添加一个根目录的文件
-Ping.dll
+test_project/Ping.dll
 """
     with io.open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
