@@ -5,7 +5,6 @@ import os
 import time
 import glob
 import zipfile
-import shutil
 import argparse
 import io  # For Python 2.7 compatible open with encoding
 import fnmatch  # For glob recursive backport
@@ -111,7 +110,7 @@ def calculate_arcname(relative_found_path, source_pattern, dest_pattern):
         else:
             # 规则: Debug/Agent.exe -> Release/*
             # 重命名路径，文件名不变。
-            if dest_pattern.endswith(os.sep) or dest_pattern.endswith('*'):
+            if dest_pattern.endswith('/') or dest_pattern.endswith('\\') or dest_pattern.endswith('*'):
                 dest_parent_dir = dest_pattern.rstrip('*.')
                 file_name = os.path.basename(relative_found_path)
                 arcname = os.path.join(dest_parent_dir, file_name)
