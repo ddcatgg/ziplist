@@ -237,7 +237,6 @@ if __name__ == '__main__':
     # 设置命令行参数解析器
     parser = argparse.ArgumentParser(
         description="根据 .ziplist 文件打包项目文件到 .zip 压缩包。",
-        epilog="例如: python ziplist.py C:/my_project/package.ziplist"
     )
     parser.add_argument(
         "ziplist_path",
