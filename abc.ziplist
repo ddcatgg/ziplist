@@ -8,12 +8,12 @@ test_project/Sounds/**
 #    注意 **/*.wav 可以匹配任意子目录下的 .wav 文件
 !**/*.wav
 
-# 3. 再忽略掉 Debug 目录下的所有内容
+# 3. 打包 Debug 目录下的所有内容
 test_project/Debug/**
 
-# 4. 但是，我还是需要 Debug 目录下的 AgentExe.exe，并重命名它
+# 4. 但是，我还将需要 Debug 目录下的 AgentExe.exe 再复制一份，并重命名它
 #    因为 'Debug/**' 已经把它添加进来了，而 '!' 规则没有匹配它，所以它依然在列表里
-#    这里我们用一个更精确的规则覆盖它，并给它一个新的目标路径
+#    这里我们用一个更精确的规则包含它，并给它一个新的目标路径
 test_project/Debug/AgentExe.exe -> bin/Agent.exe
 
 # 5. 最后，添加一个根目录的文件

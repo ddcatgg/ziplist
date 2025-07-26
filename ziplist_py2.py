@@ -60,9 +60,11 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             rules.append({'source': source_pattern, 'dest': dest_pattern, 'negative': is_negative})
 
     # --- 2. 根据规则搜集和排除文件 (顺序处理) ---
-    # 使用字典来存储最终要添加的文件，键是源文件绝对路径，值是压缩包内的目标路径(arcname)
-    # 这样可以自然地处理规则覆盖和忽略的问题
-    files_to_add = {}
+    # 使用列表来存储要添加的文件，每个元素是一个元组 (源文件路径, 目标路径)
+    # 这样允许同一个源文件出现多次，每次都有不同的目标路径
+    files_to_add = []
+    # 用集合来记录已经被删除的源文件路径，用于处理忽略规则
+    ignored_files = set()
     source_dir_abs = os.path.abspath(source_dir)
 
     print(u"--- 开始处理打包规则 (严格按顺序) ---")
@@ -163,19 +165,34 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
 
                 # 统一压缩包内的路径分隔符为 '/'
                 arcname = arcname.replace(os.path.sep, '/')
-                # In Python 2, paths from os functions might be bytes, ensure they are unicode
-                # if unicode_literals is on, they should be, but let's be safe.
-                files_to_add[unicode(found_abs_path)] = unicode(arcname)
-                print(u"  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
+                # In Python 2, paths from os functions might be bytes, ensure they are str
+                if not isinstance(found_abs_path, str):
+                    found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
+                if not isinstance(arcname, str):
+                    arcname = arcname.decode(sys.getfilesystemencoding())
+
+                # 如果文件没有被忽略规则排除，就添加它
+                if found_abs_path not in ignored_files:
+                    files_to_add.append((found_abs_path, arcname))
+                    print(u"  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
 
         else:
             # --- 这是个忽略(!)规则 ---
             print(u"规则: '!{0}'".format(rule['source']))
             for found_abs_path in matched_paths:
-                if found_abs_path in files_to_add:
+                # 将要忽略的文件路径添加到忽略集合中
+                if not isinstance(found_abs_path, str):
+                    found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
+                ignored_files.add(found_abs_path)
+
+                # 先检查文件是否在待添加列表中
+                was_in_list = any(src == found_abs_path for src, _ in files_to_add)
+                if was_in_list:
                     relative_path_to_remove = os.path.relpath(found_abs_path, source_dir_abs)
                     print(u"  [忽略] '{0}'".format(relative_path_to_remove))
-                    del files_to_add[found_abs_path]
+
+                # 然后从待添加列表中移除所有使用这个源文件的条目
+                files_to_add = [(src, arc) for src, arc in files_to_add if src != found_abs_path]
 
 
     # --- 4. 执行打包 ---
@@ -190,18 +207,22 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    # 使用集合来检测最终是否有重名的目标路径
-    added_arcnames = set()
+    # 使用字典来记录每个目标路径被使用的情况
+    arcname_sources = {}
     has_duplicates = False
 
     with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for source_path, arcname in files_to_add.items():
-            if arcname in added_arcnames:
-                print(u"警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖之前的文件。".format(arcname, source_path))
-                has_duplicates = True
+        for source_path, arcname in files_to_add:
+            if arcname in arcname_sources:
+                # 如果是同一个源文件要添加到不同位置，这是允许的
+                # 如果是不同源文件要添加到同一个位置，这是需要警告的
+                if source_path != arcname_sources[arcname]:
+                    print(u"警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖 '{2}'。".format(
+                        arcname, source_path, arcname_sources[arcname]))
+                    has_duplicates = True
             # arcname must be a byte string in py2 zipfile
             zipf.write(source_path, arcname.encode('utf-8'))
-            added_arcnames.add(arcname)
+            arcname_sources[arcname] = source_path
 
     if has_duplicates:
          print(u"\n提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。")
