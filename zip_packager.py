@@ -1,7 +1,9 @@
+# https://gemini.google.com/app/aa067d3a12b420ff
 import os
 import glob
 import zipfile
 import shutil
+import argparse
 from pathlib import Path
 
 def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
@@ -74,7 +76,9 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
         if not rule['negative']:
             # --- 这是个普通(添加)规则 ---
             if not matched_paths:
-                print(f"警告：规则 '{rule['source']}' 没有匹配到任何文件。")
+                # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
+                print(f"\n!!! MISSING: {rule['source']}")
+                input("--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
                 continue
             
             print(f"规则: '{rule['source']}'")
@@ -174,7 +178,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     print(f"\n成功！总共打包了 {len(files_to_add)} 个文件到 '{output_zip_path}'。")
 
 
-# (此部分用于测试，无需修改)
+# (测试函数保留，但不再从主程序调用)
 def setup_test_environment(base_dir="test_project"):
     """创建一个用于测试的文件结构。"""
     print(f"--- 正在创建测试环境 at '{base_dir}' ---")
@@ -230,20 +234,41 @@ Ping.dll
 
 
 if __name__ == '__main__':
-    # 定义测试环境的目录和文件
-    SOURCE_PROJECT_DIR = "test_project"
-    ZIPLIST_FILE = ".ziplist"
-    OUTPUT_ZIP = os.path.join("build", "MyPackage.zip")
-    
-    # 1. 准备测试环境
-    setup_test_environment(SOURCE_PROJECT_DIR)
-    create_test_ziplist(ZIPLIST_FILE)
-    
-    print("\n" + "="*50)
-    # 2. 执行打包程序
-    create_zip_from_list(
-        source_dir=SOURCE_PROJECT_DIR,
-        ziplist_path=ZIPLIST_FILE,
-        output_zip_path=OUTPUT_ZIP
+    # 设置命令行参数解析器
+    parser = argparse.ArgumentParser(
+        description="根据 .ziplist 文件打包项目文件到 .zip 压缩包。",
+        epilog="例如: python ziplist.py C:/my_project/package.ziplist"
     )
-    print("="*50 + "\n")
+    parser.add_argument(
+        "ziplist_path",
+        help="要处理的 .ziplist 配置文件的路径。"
+    )
+    args = parser.parse_args()
+
+    # 获取 .ziplist 文件的绝对路径
+    ziplist_abs_path = os.path.abspath(args.ziplist_path)
+
+    # 检查文件是否存在
+    if not os.path.isfile(ziplist_abs_path):
+        print(f"错误：指定的配置文件不存在: {ziplist_abs_path}")
+        exit(1) # 以错误码退出
+
+    # 约定：源文件目录就是 .ziplist 文件所在的目录
+    source_dir = os.path.dirname(ziplist_abs_path)
+    
+    # 根据 .ziplist 的文件名，生成对应的 .zip 文件名
+    base_name = os.path.splitext(os.path.basename(ziplist_abs_path))[0]
+    output_zip_path = os.path.join(source_dir, f"{base_name}.zip")
+
+    print("="*60)
+    print(f"源文件目录: {source_dir}")
+    print(f"配置文件:     {ziplist_abs_path}")
+    print(f"输出压缩包:   {output_zip_path}")
+    print("="*60)
+
+    # 调用核心功能函数
+    create_zip_from_list(
+        source_dir=source_dir,
+        ziplist_path=ziplist_abs_path,
+        output_zip_path=output_zip_path
+    )
