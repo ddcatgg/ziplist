@@ -127,17 +127,17 @@ def process_ignore_rules(rules, source_dir_abs):
     ignored_files = set()
     print("--- 处理忽略规则 ---")
 
-    for rule in rules:
-        if rule['negative']:
-            source_pattern = rule['source']
-            print("规则: '!{0}'".format(source_pattern))
+    ignore_rules = filter(lambda x: x['is_ignore'] is True, rules)
+    for rule in ignore_rules:
+        source_pattern = rule['source']
+        print("规则: '!{0}'".format(source_pattern))
 
-            matched_paths = find_matching_files(source_dir_abs, source_pattern)
+        matched_paths = find_matching_files(source_dir_abs, source_pattern)
 
-            # 将匹配到的文件添加到忽略集合中
-            for found_abs_path in matched_paths:
-                if os.path.isfile(found_abs_path):
-                    ignored_files.add(found_abs_path)
+        # 将匹配到的文件添加到忽略集合中
+        for found_abs_path in matched_paths:
+            if os.path.isfile(found_abs_path):
+                ignored_files.add(found_abs_path)
 
     return ignored_files
 
@@ -156,41 +156,41 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
     files_to_add = []
 
     print("\n--- 处理添加规则 ---")
-    for rule in rules:
-        if not rule['negative']:
-            source_pattern = rule['source']
-            dest_pattern = rule['dest']
 
-            # 使用辅助函数查找匹配的文件
-            matched_paths = find_matching_files(source_dir_abs, source_pattern)
+    add_rules = filter(lambda x: x['is_ignore'] is False, rules)
+    for rule in add_rules:
+        source_pattern = rule['source']
+        dest_pattern = rule['dest']
 
-            # --- 这是个普通(添加)规则 ---
-            if not matched_paths:
-                # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
-                print("\n{red}!!! MISSING: {0}{reset}".format(
-                    rule['source'], red=COLORS['red'], reset=COLORS['reset']))
-                print("{yellow}--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---{reset}".format(
-                    yellow=COLORS['yellow'], reset=COLORS['reset']))
-                raw_input()  # Python 2
-                sys.exit(2)
+        # 使用辅助函数查找匹配的文件
+        matched_paths = find_matching_files(source_dir_abs, source_pattern)
 
-            print("规则: '{0}'".format(source_pattern))
-            for found_abs_path in matched_paths:
-                # 只处理文件，跳过目录
-                if not os.path.isfile(found_abs_path):
-                    continue
+        # --- 这是个普通(添加)规则 ---
+        if not matched_paths:
+            print("\n{red}!!! MISSING: {0}{reset}".format(
+                rule['source'], red=COLORS['red'], reset=COLORS['reset']))
+            print("{yellow}--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---{reset}".format(
+                yellow=COLORS['yellow'], reset=COLORS['reset']))
+            raw_input()  # Python 2
+            sys.exit(2)
 
-                # 使用辅助函数计算文件在压缩包中的路径
-                relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
-                arcname = calculate_arcname(relative_found_path, source_pattern, dest_pattern)
+        print("规则: '{0}'".format(source_pattern))
+        for found_abs_path in matched_paths:
+            # 只处理文件，跳过目录
+            if not os.path.isfile(found_abs_path):
+                continue
 
-                # 检查文件是否被忽略规则排除
-                if found_abs_path in ignored_files:
-                    print("{yellow}  [忽略] '{0}'{reset}".format(
-                        relative_found_path, yellow=COLORS['yellow'], reset=COLORS['reset']))
-                else:
-                    files_to_add.append((found_abs_path, arcname))
-                    print("  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
+            # 使用辅助函数计算文件在压缩包中的路径
+            relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
+            arcname = calculate_arcname(relative_found_path, source_pattern, dest_pattern)
+
+            # 检查文件是否被忽略规则排除
+            if found_abs_path in ignored_files:
+                print("{yellow}  [忽略] '{0}'{reset}".format(
+                    relative_found_path, yellow=COLORS['yellow'], reset=COLORS['reset']))
+            else:
+                files_to_add.append((found_abs_path, arcname))
+                print("  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
 
     return files_to_add
 
@@ -245,7 +245,7 @@ def parse_ziplist_file(ziplist_path):
     解析 .ziplist 文件内容，返回规则列表。
 
     :param ziplist_path: .ziplist 配置文件的路径
-    :return: 规则列表，每个规则是一个字典，包含 source、dest 和 negative 字段
+    :return: 规则列表，每个规则是一个字典，包含 source、dest 和 is_ignore 字段
     """
     rules = []
     # Use io.open for Python 2.7 compatibility with encoding
@@ -256,9 +256,9 @@ def parse_ziplist_file(ziplist_path):
             if not line or line.startswith('#'):
                 continue
 
-            # <<< NEW FEATURE: Check for negation `!` prefix >>>
-            is_negative = line.startswith('!')
-            if is_negative:
+            # Check for negation `!` prefix
+            is_ignore = line.startswith('!')
+            if is_ignore:
                 # 移除 '!' 和前面的空格
                 line = line[1:].lstrip()
 
@@ -276,8 +276,8 @@ def parse_ziplist_file(ziplist_path):
             if dest_pattern:
                 dest_pattern = dest_pattern.replace('/', os.path.sep).replace('\\', os.path.sep)
 
-            # Store rule with its type (positive or negative)
-            rules.append({'source': source_pattern, 'dest': dest_pattern, 'negative': is_negative})
+            # Store rule with `is_ignore` flag
+            rules.append({'source': source_pattern, 'dest': dest_pattern, 'is_ignore': is_ignore})
 
     return rules
 
@@ -361,7 +361,7 @@ test_project/Sounds/**
 #    注意 **/*.wav 可以匹配任意子目录下的 .wav 文件
 !**/*.wav
 
-# 3. 打包 Debug 目录下的所有内容
+# 3. 再添加 Debug 目录下的所有内容
 test_project/Debug/**
 
 # 4. 但是，我还将需要 Debug 目录下的 AgentExe.exe 再复制一份，并重命名它
