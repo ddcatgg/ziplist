@@ -183,15 +183,15 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
                 # 将要忽略的文件路径添加到忽略集合中
                 if not isinstance(found_abs_path, str):
                     found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
+
+                # 只要是文件（不是目录），就输出忽略信息
+                if os.path.isfile(found_abs_path):
+                    relative_path = os.path.relpath(found_abs_path, source_dir_abs)
+                    print(u"  [忽略] '{0}'".format(relative_path))
+
                 ignored_files.add(found_abs_path)
 
-                # 先检查文件是否在待添加列表中
-                was_in_list = any(src == found_abs_path for src, _ in files_to_add)
-                if was_in_list:
-                    relative_path_to_remove = os.path.relpath(found_abs_path, source_dir_abs)
-                    print(u"  [忽略] '{0}'".format(relative_path_to_remove))
-
-                # 然后从待添加列表中移除所有使用这个源文件的条目
+                # 从待添加列表中移除所有使用这个源文件的条目
                 files_to_add = [(src, arc) for src, arc in files_to_add if src != found_abs_path]
 
 
