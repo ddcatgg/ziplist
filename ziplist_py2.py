@@ -10,6 +10,32 @@ import argparse
 import io  # For Python 2.7 compatible open with encoding
 import fnmatch # For glob recursive backport
 
+def init_colors():
+    """初始化控制台颜色支持"""
+    try:
+        import colorama
+        colorama.init()
+        return {
+            'yellow': colorama.Fore.YELLOW,
+            'red': colorama.Fore.RED,
+            'green': colorama.Fore.GREEN,
+            'reset': colorama.Fore.RESET
+        }
+    except ImportError:
+        # 如果没有 colorama，使用 ANSI 转义序列
+        if os.name == 'nt':  # Windows 平台
+            return {'yellow': '', 'red': '', 'green': '', 'reset': ''}
+        else:  # 类 Unix 平台
+            return {
+                'yellow': '\033[33m',
+                'red': '\033[31m',
+                'green': '\033[32m',
+                'reset': '\033[0m'
+            }
+
+# 初始化颜色
+COLORS = init_colors()
+
 def find_matching_files(source_dir_abs, source_pattern):
     """
     根据给定的模式查找匹配的文件。
@@ -135,8 +161,10 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
             # --- 这是个普通(添加)规则 ---
             if not matched_paths:
                 # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
-                print("\n!!! MISSING: {0}".format(rule['source']))
-                print("--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
+                print("\n{red}!!! MISSING: {0}{reset}".format(
+                    rule['source'], red=COLORS['red'], reset=COLORS['reset']))
+                print("{yellow}--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---{reset}".format(
+                    yellow=COLORS['yellow'], reset=COLORS['reset']))
                 raw_input()  # Python 2
                 sys.exit(2)
 
@@ -152,7 +180,8 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
 
                 # 检查文件是否被忽略规则排除
                 if found_abs_path in ignored_files:
-                    print("  [忽略] '{0}'".format(relative_found_path))
+                    print("{yellow}  [忽略] '{0}'{reset}".format(
+                        relative_found_path, yellow=COLORS['yellow'], reset=COLORS['reset']))
                 else:
                     files_to_add.append((found_abs_path, arcname))
                     print("  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
@@ -172,10 +201,12 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     """
     # 确保源目录和配置文件存在
     if not os.path.isdir(source_dir):
-        print("错误：源目录 '{0}' 不存在。".format(source_dir))
+        print("{red}错误：源目录 '{0}' 不存在。{reset}".format(
+            source_dir, red=COLORS['red'], reset=COLORS['reset']))
         return
     if not os.path.isfile(ziplist_path):
-        print("错误：配置文件 '{0}' 不存在。".format(ziplist_path))
+        print("{red}错误：配置文件 '{0}' 不存在。{reset}".format(
+            ziplist_path, red=COLORS['red'], reset=COLORS['reset']))
         return
 
     # --- 1. 解析 .ziplist 文件 ---
@@ -261,17 +292,20 @@ def create_zip_file(files_to_add, output_zip_path):
                 # 如果是同一个源文件要添加到不同位置，这是允许的
                 # 如果是不同源文件要添加到同一个位置，这是需要警告的
                 if source_path != arcname_sources[arcname]:
-                    print("警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖 '{2}'。".format(
-                        arcname, source_path, arcname_sources[arcname]))
+                    print("{yellow}警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖 '{2}'。{reset}".format(
+                        arcname, source_path, arcname_sources[arcname],
+                        yellow=COLORS['yellow'], reset=COLORS['reset']))
                     has_duplicates = True
             # 打包进 zip 文件
             zipf.write(source_path, arcname)
             arcname_sources[arcname] = source_path
 
     if has_duplicates:
-         print("\n提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。")
+         print("\n{yellow}提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。{reset}".format(
+             yellow=COLORS['yellow'], reset=COLORS['reset']))
 
-    print("\n成功！总共打包了 {0} 个文件到 '{1}'。".format(len(files_to_add), output_zip_path))
+    print("\n{green}成功！总共打包了 {0} 个文件到 '{1}'。{reset}".format(
+        len(files_to_add), output_zip_path, green=COLORS['green'], reset=COLORS['reset']))
     time.sleep(2)
 
 
@@ -351,7 +385,8 @@ if __name__ == '__main__':
     # 检查文件是否存在
     if not os.path.isfile(ziplist_abs_path):
         # ziplist_abs_path 现在是 unicode，可以安全地格式化
-        print("错误：指定的配置文件不存在: {0}".format(ziplist_abs_path))
+        print("{red}错误：指定的配置文件不存在: {0}{reset}".format(
+            ziplist_abs_path, red=COLORS['red'], reset=COLORS['reset']))
         sys.exit(1) # 以错误码退出
 
     # 约定：源文件目录就是 .ziplist 文件所在的目录
