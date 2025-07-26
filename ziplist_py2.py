@@ -8,7 +8,8 @@ import zipfile
 import shutil
 import argparse
 import io  # For Python 2.7 compatible open with encoding
-import fnmatch # For glob recursive backport
+import fnmatch  # For glob recursive backport
+
 
 def init_colors():
     """初始化控制台颜色支持"""
@@ -33,8 +34,10 @@ def init_colors():
                 'reset': '\033[0m'
             }
 
+
 # 初始化颜色
 COLORS = init_colors()
+
 
 def find_matching_files(source_dir_abs, source_pattern):
     """
@@ -62,6 +65,7 @@ def find_matching_files(source_dir_abs, source_pattern):
         matched_paths = glob.glob(glob_pattern)
 
     return matched_paths
+
 
 def calculate_arcname(relative_found_path, source_pattern, dest_pattern):
     """
@@ -111,6 +115,7 @@ def calculate_arcname(relative_found_path, source_pattern, dest_pattern):
     # 统一压缩包内的路径分隔符为 '/'
     return arcname.replace(os.path.sep, '/')
 
+
 def process_ignore_rules(rules, source_dir_abs):
     """
     处理所有忽略规则，返回被忽略文件的集合。
@@ -135,6 +140,7 @@ def process_ignore_rules(rules, source_dir_abs):
                     ignored_files.add(found_abs_path)
 
     return ignored_files
+
 
 def process_add_rules(rules, source_dir_abs, ignored_files):
     """
@@ -188,6 +194,7 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
 
     return files_to_add
 
+
 def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     """
     根据 .ziplist 文件的规则，从源目录打包文件到 ZIP 压缩包。
@@ -232,6 +239,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     # 打包文件
     create_zip_file(files_to_add, output_zip_path)
 
+
 def parse_ziplist_file(ziplist_path):
     """
     解析 .ziplist 文件内容，返回规则列表。
@@ -273,6 +281,7 @@ def parse_ziplist_file(ziplist_path):
 
     return rules
 
+
 def create_zip_file(files_to_add, output_zip_path):
     """
     将指定的文件列表打包到 ZIP 文件中。
@@ -301,8 +310,8 @@ def create_zip_file(files_to_add, output_zip_path):
             arcname_sources[arcname] = source_path
 
     if has_duplicates:
-         print("\n{yellow}提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。{reset}".format(
-             yellow=COLORS['yellow'], reset=COLORS['reset']))
+        print("\n{yellow}提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。{reset}".format(
+            yellow=COLORS['yellow'], reset=COLORS['reset']))
 
     print("\n{green}成功！总共打包了 {0} 个文件到 '{1}'。{reset}".format(
         len(files_to_add), output_zip_path, green=COLORS['green'], reset=COLORS['reset']))
@@ -337,6 +346,7 @@ def setup_test_environment(base_dir="test_project"):
         with open(full_path, 'w') as f:
             f.write("this is {0}".format(p))
     print("测试文件创建完毕。")
+
 
 def create_test_ziplist(filepath="abc.ziplist"):
     """创建一个用于测试的 .ziplist 文件。"""
@@ -388,7 +398,7 @@ if __name__ == '__main__':
         # ziplist_abs_path 现在是 unicode，可以安全地格式化
         print("{red}错误：指定的配置文件不存在: {0}{reset}".format(
             ziplist_abs_path, red=COLORS['red'], reset=COLORS['reset']))
-        sys.exit(1) # 以错误码退出
+        sys.exit(1)  # 以错误码退出
 
     # 约定：源文件目录就是 .ziplist 文件所在的目录
     source_dir = os.path.dirname(ziplist_abs_path)
@@ -397,11 +407,11 @@ if __name__ == '__main__':
     base_name = os.path.splitext(os.path.basename(ziplist_abs_path))[0]
     output_zip_path = os.path.join(source_dir, "{0}.zip".format(base_name))
 
-    print("="*60)
+    print("=" * 60)
     print("源文件目录: {0}".format(source_dir))
     print("配置文件:     {0}".format(ziplist_abs_path))
     print("输出压缩包:   {0}".format(output_zip_path))
-    print("="*60)
+    print("=" * 60)
 
     # 调用核心功能函数
     create_zip_from_list(
