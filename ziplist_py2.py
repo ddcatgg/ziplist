@@ -139,11 +139,7 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
                 # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
                 print("\n!!! MISSING: {0}".format(rule['source']))
                 print("--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
-                try:
-                    raw_input()  # Python 2
-                except KeyboardInterrupt:
-                    print("\n操作被用户取消")
-                    sys.exit(1)
+                raw_input()  # Python 2
                 sys.exit(2)
 
             print("规则: '{0}'".format(source_pattern))
