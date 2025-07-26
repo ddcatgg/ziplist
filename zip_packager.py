@@ -29,6 +29,12 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             if not line or line.startswith('#'):
                 continue
             
+            # <<< NEW FEATURE: Check for negation `!` prefix >>>
+            is_negative = line.startswith('!')
+            if is_negative:
+                # 移除 '!' 和前面的空格
+                line = line[1:].lstrip()
+            
             # 分割源和目标路径
             if '->' in line:
                 parts = line.split('->', 1)
@@ -43,15 +49,16 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             if dest_pattern:
                 dest_pattern = dest_pattern.replace('/', os.path.sep).replace('\\', os.path.sep)
 
-            rules.append({'source': source_pattern, 'dest': dest_pattern})
+            # Store rule with its type (positive or negative)
+            rules.append({'source': source_pattern, 'dest': dest_pattern, 'negative': is_negative})
 
-    # --- 2. 根据规则搜集文件 ---
+    # --- 2. 根据规则搜集和排除文件 (顺序处理) ---
     # 使用字典来存储最终要添加的文件，键是源文件绝对路径，值是压缩包内的目标路径(arcname)
-    # 这样可以自然地处理规则覆盖的问题（后面的规则会覆盖前面的）
+    # 这样可以自然地处理规则覆盖和忽略的问题
     files_to_add = {}
     source_dir_abs = os.path.abspath(source_dir)
 
-    print("--- 开始处理打包规则 ---")
+    print("--- 开始处理打包规则 (严格按顺序) ---")
     for rule in rules:
         source_pattern = rule['source']
         dest_pattern = rule['dest']
@@ -63,70 +70,82 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
         # recursive=True 使得 ** 能正常工作
         matched_paths = glob.glob(glob_pattern, recursive=True)
 
-        if not matched_paths:
-            print(f"警告：规则 '{rule['source']}' 没有匹配到任何文件。")
-            continue
-
-        for found_abs_path in matched_paths:
-            # 只处理文件，跳过目录
-            if not os.path.isfile(found_abs_path):
+        # <<< NEW LOGIC: Handle positive and negative rules differently >>>
+        if not rule['negative']:
+            # --- 这是个普通(添加)规则 ---
+            if not matched_paths:
+                print(f"警告：规则 '{rule['source']}' 没有匹配到任何文件。")
                 continue
             
-            # --- 3. 计算文件在压缩包内的目标路径 (arcname) ---
-            arcname = ''
-            relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
+            print(f"规则: '{rule['source']}'")
+            for found_abs_path in matched_paths:
+                # 只处理文件，跳过目录
+                if not os.path.isfile(found_abs_path):
+                    continue
+                
+                # --- 3. 计算文件在压缩包内的目标路径 (arcname) ---
+                arcname = ''
+                relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
 
-            if dest_pattern is None:
-                # <<< ==================== MODIFIED BLOCK START ==================== >>>
-                # 如果规则不包含 '->'
-                if '**' in source_pattern:
-                    # 规则: Sounds/**
-                    # 效果: 将 Sounds/sub/c.ogg 打包为 sub/c.ogg (保留相对路径)
-                    # 实现方式：从文件的相对路径中，移除模式中的静态基本路径
-                    pattern_base = source_pattern.split('**')[0]
-                    
-                    # 如果 pattern_base 为空（例如规则是 '**/*.dll'），则不移除任何部分
-                    if pattern_base:
-                        arcname = os.path.relpath(relative_found_path, pattern_base)
+                if dest_pattern is None:
+                    # 如果规则不包含 '->'
+                    if '**' in source_pattern:
+                        # 规则: Sounds/**
+                        # 效果: 将 Sounds/sub/c.ogg 打包为 sub/c.ogg (保留相对路径)
+                        # 实现方式：从文件的相对路径中，移除模式中的静态基本路径
+                        pattern_base = source_pattern.split('**')[0]
+
+                        # 如果 pattern_base 为空（例如规则是 '**/*.dll'），则不移除任何部分
+                        if pattern_base:
+                            arcname = os.path.relpath(relative_found_path, pattern_base)
+                        else:
+                            arcname = relative_found_path
                     else:
-                        arcname = relative_found_path
+                        # 规则: Debug/File.dll 或 Sounds/*.*
+                        # 效果: 打包到压缩包根目录，只保留文件名（扁平化）
+                        arcname = os.path.basename(relative_found_path)
                 else:
-                    # 规则: Debug/File.dll 或 Sounds/*.*
-                    # 效果: 打包到压缩包根目录，只保留文件名（扁平化）
-                    arcname = os.path.basename(relative_found_path)
-                # <<< ===================== MODIFIED BLOCK END ===================== >>>
-            else:
-                # 规则中包含 '->'
-                if '**' in source_pattern:
-                    # 规则: Sounds/** -> Sounds1/**
-                    # 效果: 递归地将 Sounds 下所有文件和目录结构复制到 Sounds1 下
-                    base_src = source_pattern.split('**')[0]
-                    wildcard_match = os.path.relpath(relative_found_path, base_src)
-                    base_dest = dest_pattern.split('**')[0]
-                    arcname = os.path.join(base_dest, wildcard_match)
-                elif '*' in source_pattern:
-                    # 规则: Sounds/*.* -> Sounds1/*.*
-                    # 效果: 将 Sounds 目录下的文件打包到 Sounds1 目录下
-                    src_parent_dir = os.path.dirname(source_pattern)
-                    dest_parent_dir = os.path.dirname(dest_pattern)
-                    file_name = os.path.basename(relative_found_path)
-                    
-                    # 如果源模式是类似 `*.*` 这样没有目录的，则直接用目标目录
-                    if not src_parent_dir:
-                        arcname = os.path.join(dest_parent_dir, file_name)
+                    # 规则中包含 '->'
+                    if '**' in source_pattern:
+                        # 规则: Sounds/** -> Sounds1/**
+                        # 效果: 递归地将 Sounds 下所有文件和目录结构复制到 Sounds1 下
+                        base_src = source_pattern.split('**')[0]
+                        wildcard_match = os.path.relpath(relative_found_path, base_src)
+                        base_dest = dest_pattern.split('**')[0]
+                        arcname = os.path.join(base_dest, wildcard_match)
+                    elif '*' in source_pattern:
+                        # 规则: Sounds/*.* -> Sounds1/*.*
+                        # 效果: 将 Sounds 目录下的文件打包到 Sounds1 目录下
+                        src_parent_dir = os.path.dirname(source_pattern)
+                        dest_parent_dir = os.path.dirname(dest_pattern)
+                        file_name = os.path.basename(relative_found_path)
+                        
+                        # 如果源模式是类似 `*.*` 这样没有目录的，则直接用目标目录
+                        if not src_parent_dir:
+                            arcname = os.path.join(dest_parent_dir, file_name)
+                        else:
+                            # 保持相对路径结构
+                            relative_to_src_parent = os.path.relpath(relative_found_path, src_parent_dir)
+                            arcname = os.path.join(dest_parent_dir, relative_to_src_parent)
                     else:
-                        # 保持相对路径结构
-                        relative_to_src_parent = os.path.relpath(relative_found_path, src_parent_dir)
-                        arcname = os.path.join(dest_parent_dir, relative_to_src_parent)
-                else:
-                    # 规则: Debug/Agent.exe -> Release/Agent.exe
-                    # 效果: 精确重命名
-                    arcname = dest_pattern
-            
-            # 统一压缩包内的路径分隔符为 '/'
-            arcname = arcname.replace(os.path.sep, '/')
-            files_to_add[found_abs_path] = arcname
-            print(f"  [匹配] '{relative_found_path}' -> '{arcname}'")
+                        # 规则: Debug/Agent.exe -> Release/Agent.exe
+                        # 效果: 精确重命名
+                        arcname = dest_pattern
+                
+                # 统一压缩包内的路径分隔符为 '/'
+                arcname = arcname.replace(os.path.sep, '/')
+                files_to_add[found_abs_path] = arcname
+                print(f"  [添加] '{relative_found_path}' -> '{arcname}'")
+
+        else:
+            # --- 这是个忽略(!)规则 ---
+            print(f"规则: '!{rule['source']}'")
+            for found_abs_path in matched_paths:
+                if found_abs_path in files_to_add:
+                    relative_path_to_remove = os.path.relpath(found_abs_path, source_dir_abs)
+                    print(f"  [忽略] '{relative_path_to_remove}'")
+                    del files_to_add[found_abs_path]
+
 
     # --- 4. 执行打包 ---
     if not files_to_add:
@@ -185,25 +204,25 @@ def create_test_ziplist(filepath=".ziplist"):
     """创建一个用于测试的 .ziplist 文件。"""
     print(f"--- 正在创建测试配置文件 at '{filepath}' ---")
     content = """
-# 这是一个示例 .ziplist 文件
-# 语法类似于 .gitignore，并增加了 '->' 重定向功能
+# 这是一个演示 '!' 忽略语法的 .ziplist 文件
 
-# 1. 直接打包文件到压缩包根目录
-SipVoice.dll
+# 1. 首先，包含 Sounds 目录下的所有内容，保留其内部目录结构
+Sounds/**
+
+# 2. 然后，使用 '!' 忽略掉所有的 .wav 文件
+#    注意 **/*.wav 可以匹配任意子目录下的 .wav 文件
+!**/*.wav
+
+# 3. 再忽略掉 Debug 目录下的所有内容
+Debug/**
+
+# 4. 但是，我还是需要 Debug 目录下的 AgentExe.exe，并重命名它
+#    因为 'Debug/**' 已经把它添加进来了，而 '!' 规则没有匹配它，所以它依然在列表里
+#    这里我们用一个更精确的规则覆盖它，并给它一个新的目标路径
+Debug/AgentExe.exe -> bin/Agent.exe
+
+# 5. 最后，添加一个根目录的文件
 Ping.dll
-
-# 2. 打包指定路径的文件，但只保留文件名到压缩包根目录
-Debug/TrayIconDll.dll
-
-# 3. 将文件重命名/重定向到压缩包内指定路径
-Debug/AgentExe.exe -> Release/AgentExe.exe
-res/AgentExe.ico
-
-# 4. 将 Sounds 目录下的所有文件 (*.*) 打包到压缩包的 Sounds1 目录下
-Sounds/*.* -> Sounds1/*.*
-
-# 5. 递归打包 Sounds 目录下所有文件 (**) 到 NewSounds 目录下，并保持目录结构
-Sounds/** -> NewSounds/**
 """
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
@@ -228,9 +247,3 @@ if __name__ == '__main__':
         output_zip_path=OUTPUT_ZIP
     )
     print("="*50 + "\n")
-
-    # (可选) 清理测试环境
-    # print("--- 正在清理测试环境 ---")
-    # shutil.rmtree(SOURCE_PROJECT_DIR)
-    # os.remove(ZIPLIST_FILE)
-    # print("清理完毕。")

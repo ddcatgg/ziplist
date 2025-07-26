@@ -1,20 +1,20 @@
 
-# 这是一个示例 .ziplist 文件
-# 语法类似于 .gitignore，并增加了 '->' 重定向功能
+# 这是一个演示 '!' 忽略语法的 .ziplist 文件
 
-# 1. 直接打包文件到压缩包根目录
-SipVoice.dll
+# 1. 首先，包含 Sounds 目录下的所有内容，保留其内部目录结构
+Sounds/**
+
+# 2. 然后，使用 '!' 忽略掉所有的 .wav 文件
+#    注意 **/*.wav 可以匹配任意子目录下的 .wav 文件
+!**/*.wav
+
+# 3. 再忽略掉 Debug 目录下的所有内容
+Debug/**
+
+# 4. 但是，我还是需要 Debug 目录下的 AgentExe.exe，并重命名它
+#    因为 'Debug/**' 已经把它添加进来了，而 '!' 规则没有匹配它，所以它依然在列表里
+#    这里我们用一个更精确的规则覆盖它，并给它一个新的目标路径
+Debug/AgentExe.exe -> bin/Agent.exe
+
+# 5. 最后，添加一个根目录的文件
 Ping.dll
-
-# 2. 打包指定路径的文件，但只保留文件名到压缩包根目录
-Debug/TrayIconDll.dll
-
-# 3. 将文件重命名/重定向到压缩包内指定路径
-Debug/AgentExe.exe -> Release/AgentExe.exe
-res/AgentExe.ico
-
-# 4. 将 Sounds 目录下的所有文件 (*.*) 打包到压缩包的 Sounds1 目录下
-Sounds/*.* -> Sounds1/*.*
-
-# 5. 递归打包 Sounds 目录下所有文件 (**) 到 NewSounds 目录下，并保持目录结构
-Sounds/** -> NewSounds/**
