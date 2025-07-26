@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals, print_function
+import sys
 import os
+import time
 import glob
 import zipfile
 import shutil
 import argparse
 import io  # For Python 2.7 compatible open with encoding
-import sys # For sys.exit
 import fnmatch # For glob recursive backport
 
 def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
@@ -34,13 +35,13 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             # 忽略注释行和空行
             if not line or line.startswith('#'):
                 continue
-            
+
             # <<< NEW FEATURE: Check for negation `!` prefix >>>
             is_negative = line.startswith('!')
             if is_negative:
                 # 移除 '!' 和前面的空格
                 line = line[1:].lstrip()
-            
+
             # 分割源和目标路径
             if '->' in line:
                 parts = line.split('->', 1)
@@ -49,7 +50,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             else:
                 source_pattern = line
                 dest_pattern = None
-            
+
             # 将路径分隔符统一为 OS 标准，以便 glob 匹配
             source_pattern = source_pattern.replace('/', os.path.sep).replace('\\', os.path.sep)
             if dest_pattern:
@@ -64,14 +65,14 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     files_to_add = {}
     source_dir_abs = os.path.abspath(source_dir)
 
-    print("--- 开始处理打包规则 (严格按顺序) ---")
+    print(u"--- 开始处理打包规则 (严格按顺序) ---")
     for rule in rules:
         source_pattern = rule['source']
         dest_pattern = rule['dest']
-        
+
         # 构建完整的 glob 搜索模式
         glob_pattern = os.path.join(source_dir_abs, source_pattern)
-        
+
         # --- Python 2.7 glob backport for recursive=True ---
         matched_paths = []
         if '**' in source_pattern:
@@ -82,12 +83,12 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
                 for item in dirnames + filenames:
                     full_path = os.path.join(root, item)
                     relative_path = os.path.relpath(full_path, source_dir_abs)
-                    
+
                     # fnmatch 需要将路径分隔符统一为'/'，且不支持'**'
                     # 我们用 '*' 替换 '**'，因为 os.walk 已经处理了递归，这里的效果是匹配任意字符
                     pattern_for_fnmatch = source_pattern.replace('**', '*').replace(os.path.sep, '/')
                     relative_path_for_fnmatch = relative_path.replace(os.path.sep, '/')
-                    
+
                     if fnmatch.fnmatch(relative_path_for_fnmatch, pattern_for_fnmatch):
                         matched_paths.append(full_path)
         else:
@@ -101,15 +102,16 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             if not matched_paths:
                 # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
                 print(u"\n!!! MISSING: {0}".format(rule['source']))
-                raw_input("--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
-                continue
-            
+                print(u"--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
+                raw_input()
+                sys.exit(2)
+
             print(u"规则: '{0}'".format(rule['source']))
             for found_abs_path in matched_paths:
                 # 只处理文件，跳过目录
                 if not os.path.isfile(found_abs_path):
                     continue
-                
+
                 # --- 3. 计算文件在压缩包内的目标路径 (arcname) ---
                 arcname = ''
                 relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
@@ -146,7 +148,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
                         src_parent_dir = os.path.dirname(source_pattern)
                         dest_parent_dir = os.path.dirname(dest_pattern)
                         file_name = os.path.basename(relative_found_path)
-                        
+
                         # 如果源模式是类似 `*.*` 这样没有目录的，则直接用目标目录
                         if not src_parent_dir:
                             arcname = os.path.join(dest_parent_dir, file_name)
@@ -158,7 +160,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
                         # 规则: Debug/Agent.exe -> Release/Agent.exe
                         # 效果: 精确重命名
                         arcname = dest_pattern
-                
+
                 # 统一压缩包内的路径分隔符为 '/'
                 arcname = arcname.replace(os.path.sep, '/')
                 # In Python 2, paths from os functions might be bytes, ensure they are unicode
@@ -180,7 +182,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     if not files_to_add:
         print(u"\n没有需要打包的文件，操作终止。")
         return
-        
+
     print(u"\n--- 开始创建 ZIP 文件: {0} ---".format(output_zip_path))
     # 确保输出目录存在
     # os.makedirs(os.path.dirname(output_zip_path) or '.', exist_ok=True) # exist_ok not in Py2
@@ -200,11 +202,12 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             # arcname must be a byte string in py2 zipfile
             zipf.write(source_path, arcname.encode('utf-8'))
             added_arcnames.add(arcname)
-    
+
     if has_duplicates:
          print(u"\n提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。")
-    
+
     print(u"\n成功！总共打包了 {0} 个文件到 '{1}'。".format(len(files_to_add), output_zip_path))
+    time.sleep(2)
 
 
 # (测试函数保留，但不再从主程序调用)
@@ -213,7 +216,7 @@ def setup_test_environment(base_dir="test_project"):
     print(u"--- 正在创建测试环境 at '{0}' ---".format(base_dir))
     if os.path.exists(base_dir):
         shutil.rmtree(base_dir)
-    
+
     paths_to_create = [
         "SipVoice.dll",
         "Ping.dll",
@@ -233,7 +236,7 @@ def setup_test_environment(base_dir="test_project"):
             os.makedirs(out_dir)
         with open(full_path, 'w') as f:
             f.write("this is {0}".format(p))
-    print("测试文件创建完毕。")
+    print(u"测试文件创建完毕。")
 
 def create_test_ziplist(filepath=".ziplist"):
     """创建一个用于测试的 .ziplist 文件。"""
@@ -261,7 +264,7 @@ Ping.dll
 """
     with io.open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
-    print("测试配置文件创建完毕。")
+    print(u"测试配置文件创建完毕。")
 
 
 if __name__ == '__main__':
@@ -287,7 +290,7 @@ if __name__ == '__main__':
 
     # 约定：源文件目录就是 .ziplist 文件所在的目录
     source_dir = os.path.dirname(ziplist_abs_path)
-    
+
     # 根据 .ziplist 的文件名，生成对应的 .zip 文件名
     base_name = os.path.splitext(os.path.basename(ziplist_abs_path))[0]
     output_zip_path = os.path.join(source_dir, u"{0}.zip".format(base_name))
