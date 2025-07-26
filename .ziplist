@@ -1,0 +1,20 @@
+
+# 这是一个示例 .ziplist 文件
+# 语法类似于 .gitignore，并增加了 '->' 重定向功能
+
+# 1. 直接打包文件到压缩包根目录
+SipVoice.dll
+Ping.dll
+
+# 2. 打包指定路径的文件，但只保留文件名到压缩包根目录
+Debug/TrayIconDll.dll
+
+# 3. 将文件重命名/重定向到压缩包内指定路径
+Debug/AgentExe.exe -> Release/AgentExe.exe
+res/AgentExe.ico
+
+# 4. 将 Sounds 目录下的所有文件 (*.*) 打包到压缩包的 Sounds1 目录下
+Sounds/*.* -> Sounds1/*.*
+
+# 5. 递归打包 Sounds 目录下所有文件 (**) 到 NewSounds 目录下，并保持目录结构
+Sounds/** -> NewSounds/**
