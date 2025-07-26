@@ -47,7 +47,7 @@ def find_matching_files(source_dir_abs, source_pattern):
     :param source_pattern: 搜索模式（支持 ** 通配符）
     :return: 匹配文件的绝对路径列表
     """
-    glob_pattern = os.path.join(source_dir_abs, source_pattern)
+    glob_pattern = os.path.join(source_dir_abs, os.path.normpath(source_pattern))
     matched_paths = []
 
     if '**' in source_pattern:
@@ -96,12 +96,12 @@ def calculate_arcname(relative_found_path, source_pattern, dest_pattern):
             # 规则: Sounds/** -> Sounds1/**
             base_src = source_pattern.split('**')[0]
             wildcard_match = os.path.relpath(relative_found_path, base_src)
-            base_dest = dest_pattern.split('**')[0]
+            base_dest = dest_pattern.rstrip('*.')    # 末尾是 /* 或者 /** 或者 /*.* 都不重要
             arcname = os.path.join(base_dest, wildcard_match)
         elif '*' in source_pattern:
             # 规则: Sounds/*.* -> Sounds1/*.*
             src_parent_dir = os.path.dirname(source_pattern)
-            dest_parent_dir = os.path.dirname(dest_pattern)
+            dest_parent_dir = dest_pattern.rstrip('*.')    # 末尾是 /* 或者 /** 或者 /*.* 都不重要
             file_name = os.path.basename(relative_found_path)
             if not src_parent_dir:
                 arcname = os.path.join(dest_parent_dir, file_name)
@@ -109,8 +109,16 @@ def calculate_arcname(relative_found_path, source_pattern, dest_pattern):
                 relative_to_src_parent = os.path.relpath(relative_found_path, src_parent_dir)
                 arcname = os.path.join(dest_parent_dir, relative_to_src_parent)
         else:
-            # 规则: Debug/Agent.exe -> Release/Agent.exe
-            arcname = dest_pattern
+            # 规则: Debug/Agent.exe -> Release/*
+            # 重命名路径，文件名不变。
+            if dest_pattern.endswith(os.sep) or dest_pattern.endswith('*'):
+                dest_parent_dir = dest_pattern.rstrip('*.')
+                file_name = os.path.basename(relative_found_path)
+                arcname = os.path.join(dest_parent_dir, file_name)
+            else:
+                # 规则: Debug/Agent.exe -> Release/Agent.exe
+                # 重命名文件和路径
+                arcname = dest_pattern
 
     # 统一压缩包内的路径分隔符为 '/'
     return arcname.replace(os.path.sep, '/')
@@ -174,7 +182,11 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
             raw_input()  # Python 2
             sys.exit(2)
 
-        print("规则: '{0}'".format(source_pattern))
+        if dest_pattern:
+            print("规则: '{0} -> {1}'".format(source_pattern, dest_pattern))
+        else:
+            print("规则: '{0}'".format(source_pattern))
+
         for found_abs_path in matched_paths:
             # 只处理文件，跳过目录
             if not os.path.isfile(found_abs_path):
@@ -190,7 +202,8 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
                     relative_found_path, yellow=COLORS['yellow'], reset=COLORS['reset']))
             else:
                 files_to_add.append((found_abs_path, arcname))
-                print("  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
+                print("{green}  [添加] '{0}' -> '{1}'{reset}".format(
+                    relative_found_path, arcname, green=COLORS['green'], reset=COLORS['reset']))
 
     return files_to_add
 
@@ -271,11 +284,6 @@ def parse_ziplist_file(ziplist_path):
                 source_pattern = line
                 dest_pattern = None
 
-            # 将路径分隔符统一为 OS 标准，以便 glob 匹配
-            source_pattern = source_pattern.replace('/', os.path.sep).replace('\\', os.path.sep)
-            if dest_pattern:
-                dest_pattern = dest_pattern.replace('/', os.path.sep).replace('\\', os.path.sep)
-
             # Store rule with `is_ignore` flag
             rules.append({'source': source_pattern, 'dest': dest_pattern, 'is_ignore': is_ignore})
 
@@ -305,6 +313,12 @@ def create_zip_file(files_to_add, output_zip_path):
                         arcname, source_path, arcname_sources[arcname],
                         yellow=COLORS['yellow'], reset=COLORS['reset']))
                     has_duplicates = True
+                else:
+                    # 同一个源文件添加到同一位置，忽略。
+                    print("{yellow}警告：同一个源文件多次添加到同一位置 '{0}' -> '{1}' 忽略！{reset}".format(
+                        source_path, arcname,
+                        yellow=COLORS['yellow'], reset=COLORS['reset']))
+                    continue
             # 打包进 zip 文件
             zipf.write(source_path, arcname)
             arcname_sources[arcname] = source_path
@@ -316,65 +330,6 @@ def create_zip_file(files_to_add, output_zip_path):
     print("\n{green}成功！总共打包了 {0} 个文件到 '{1}'。{reset}".format(
         len(files_to_add), output_zip_path, green=COLORS['green'], reset=COLORS['reset']))
     time.sleep(2)
-
-
-# (测试函数保留，但不再从主程序调用)
-def setup_test_environment(base_dir="test_project"):
-    """创建一个用于测试的文件结构。"""
-    print("--- 正在创建测试环境 at '{0}' ---".format(base_dir))
-    if os.path.exists(base_dir):
-        shutil.rmtree(base_dir)
-
-    paths_to_create = [
-        "SipVoice.dll",
-        "Ping.dll",
-        "Debug/TrayIconDll.dll",
-        "Debug/AgentExe.exe",
-        "res/AgentExe.ico",
-        "Sounds/a.wav",
-        "Sounds/b.mp3",
-        "Sounds/sub/c.ogg",
-        "Sounds/sub/another.wav"
-        "Sounds/测试/新建 文本文档.txt"
-    ]
-
-    for p in paths_to_create:
-        full_path = os.path.join(base_dir, p)
-        out_dir = os.path.dirname(full_path)
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        with open(full_path, 'w') as f:
-            f.write("this is {0}".format(p))
-    print("测试文件创建完毕。")
-
-
-def create_test_ziplist(filepath="abc.ziplist"):
-    """创建一个用于测试的 .ziplist 文件。"""
-    print("--- 正在创建测试配置文件 at '{0}' ---".format(filepath))
-    content = """
-# 这是一个演示 '!' 忽略语法的 .ziplist 文件
-
-# 1. 首先，包含 Sounds 目录下的所有内容，保留其内部目录结构
-test_project/Sounds/**
-
-# 2. 然后，使用 '!' 忽略掉所有的 .wav 文件
-#    注意 **/*.wav 可以匹配任意子目录下的 .wav 文件
-!**/*.wav
-
-# 3. 再添加 Debug 目录下的所有内容
-test_project/Debug/**
-
-# 4. 但是，我还将需要 Debug 目录下的 AgentExe.exe 再复制一份，并重命名它
-#    因为 'Debug/**' 已经把它添加进来了，而 '!' 规则没有匹配它，所以它依然在列表里
-#    这里我们用一个更精确的规则覆盖它，并给它一个新的目标路径
-test_project/Debug/AgentExe.exe -> bin/Agent.exe
-
-# 5. 最后，添加一个根目录的文件
-test_project/Ping.dll
-"""
-    with io.open(filepath, 'w', encoding='utf-8') as f:
-        f.write(content)
-    print("测试配置文件创建完毕。")
 
 
 if __name__ == '__main__':
