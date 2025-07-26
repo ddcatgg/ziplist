@@ -10,9 +10,171 @@ import argparse
 import io  # For Python 2.7 compatible open with encoding
 import fnmatch # For glob recursive backport
 
+def find_matching_files(source_dir_abs, source_pattern):
+    """
+    根据给定的模式查找匹配的文件。
+
+    :param source_dir_abs: 源目录的绝对路径
+    :param source_pattern: 搜索模式（支持 ** 通配符）
+    :return: 匹配文件的绝对路径列表
+    """
+    glob_pattern = os.path.join(source_dir_abs, source_pattern)
+    matched_paths = []
+
+    if '**' in source_pattern:
+        # 使用 os.walk 和 fnmatch 模拟 Python 3 中 glob 的 recursive=True 功能
+        for root, dirnames, filenames in os.walk(source_dir_abs):
+            for item in dirnames + filenames:
+                full_path = os.path.join(root, item)
+                relative_path = os.path.relpath(full_path, source_dir_abs)
+                pattern_for_fnmatch = source_pattern.replace('**', '*').replace(os.path.sep, '/')
+                relative_path_for_fnmatch = relative_path.replace(os.path.sep, '/')
+                if fnmatch.fnmatch(relative_path_for_fnmatch, pattern_for_fnmatch):
+                    matched_paths.append(full_path)
+    else:
+        # 对于不含'**'的普通模式，直接使用 glob
+        matched_paths = glob.glob(glob_pattern)
+
+    return matched_paths
+
+def calculate_arcname(relative_found_path, source_pattern, dest_pattern):
+    """
+    计算文件在压缩包中的路径。
+
+    :param relative_found_path: 相对于源目录的文件路径
+    :param source_pattern: 源模式
+    :param dest_pattern: 目标模式（可能为None）
+    :return: 压缩包内的路径
+    """
+    if dest_pattern is None:
+        # 如果规则不包含 '->'
+        if '**' in source_pattern:
+            # 规则: Sounds/**
+            # 效果: 将 Sounds/sub/c.ogg 打包为 sub/c.ogg (保留相对路径)
+            pattern_base = source_pattern.split('**')[0]
+            if pattern_base:
+                arcname = os.path.relpath(relative_found_path, pattern_base)
+            else:
+                arcname = relative_found_path
+        else:
+            # 规则: Debug/File.dll 或 Sounds/*.*
+            # 效果: 打包到压缩包根目录，只保留文件名（扁平化）
+            arcname = os.path.basename(relative_found_path)
+    else:
+        # 规则中包含 '->'
+        if '**' in source_pattern:
+            # 规则: Sounds/** -> Sounds1/**
+            base_src = source_pattern.split('**')[0]
+            wildcard_match = os.path.relpath(relative_found_path, base_src)
+            base_dest = dest_pattern.split('**')[0]
+            arcname = os.path.join(base_dest, wildcard_match)
+        elif '*' in source_pattern:
+            # 规则: Sounds/*.* -> Sounds1/*.*
+            src_parent_dir = os.path.dirname(source_pattern)
+            dest_parent_dir = os.path.dirname(dest_pattern)
+            file_name = os.path.basename(relative_found_path)
+            if not src_parent_dir:
+                arcname = os.path.join(dest_parent_dir, file_name)
+            else:
+                relative_to_src_parent = os.path.relpath(relative_found_path, src_parent_dir)
+                arcname = os.path.join(dest_parent_dir, relative_to_src_parent)
+        else:
+            # 规则: Debug/Agent.exe -> Release/Agent.exe
+            arcname = dest_pattern
+
+    # 统一压缩包内的路径分隔符为 '/'
+    return arcname.replace(os.path.sep, '/')
+
+def process_ignore_rules(rules, source_dir_abs):
+    """
+    处理所有忽略规则，返回被忽略文件的集合。
+
+    :param rules: 规则列表
+    :param source_dir_abs: 源目录的绝对路径
+    :return: 被忽略文件的绝对路径集合
+    """
+    ignored_files = set()
+    print(u"--- 处理忽略规则 ---")
+
+    for rule in rules:
+        if rule['negative']:
+            source_pattern = rule['source']
+            print(u"规则: '!{0}'".format(source_pattern))
+
+            matched_paths = find_matching_files(source_dir_abs, source_pattern)
+
+            # 将匹配到的文件添加到忽略集合中
+            for found_abs_path in matched_paths:
+                if os.path.isfile(found_abs_path):
+                    if not isinstance(found_abs_path, str):
+                        found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
+                    ignored_files.add(found_abs_path)
+
+    return ignored_files
+
+def process_add_rules(rules, source_dir_abs, ignored_files):
+    """
+    处理所有添加规则，返回要添加到压缩包的文件列表。
+
+    :param rules: 规则列表
+    :param source_dir_abs: 源目录的绝对路径
+    :param ignored_files: 被忽略文件的集合
+    :return: 要添加到压缩包的文件列表，每个元素是一个元组 (源文件路径, 压缩包内路径)
+    """
+    # 使用列表来存储要添加的文件，每个元素是一个元组 (源文件路径, 目标路径)
+    # 这样允许同一个源文件出现多次，每次都有不同的目标路径
+    files_to_add = []
+
+    print(u"\n--- 处理添加规则 ---")
+    for rule in rules:
+        if not rule['negative']:
+            source_pattern = rule['source']
+            dest_pattern = rule['dest']
+
+            # 使用辅助函数查找匹配的文件
+            matched_paths = find_matching_files(source_dir_abs, source_pattern)
+
+            # --- 这是个普通(添加)规则 ---
+            if not matched_paths:
+                # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
+                print(u"\n!!! MISSING: {0}".format(rule['source']))
+                print(u"--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
+                if sys.version_info[0] < 3:
+                    input = raw_input  # Python 2
+                input()  # Python 3
+                sys.exit(2)
+
+            print(u"规则: '{0}'".format(source_pattern))
+            for found_abs_path in matched_paths:
+                # 只处理文件，跳过目录
+                if not os.path.isfile(found_abs_path):
+                    continue
+
+                # 使用辅助函数计算文件在压缩包中的路径
+                relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
+                arcname = calculate_arcname(relative_found_path, source_pattern, dest_pattern)
+
+                # 确保路径编码正确
+                if not isinstance(found_abs_path, str):
+                    found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
+                if not isinstance(arcname, str):
+                    arcname = arcname.decode(sys.getfilesystemencoding())
+
+                # 检查文件是否被忽略规则排除
+                if found_abs_path in ignored_files:
+                    print(u"  [忽略] '{0}'".format(relative_found_path))
+                else:
+                    files_to_add.append((found_abs_path, arcname))
+                    print(u"  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
+
+    return files_to_add
+
 def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     """
     根据 .ziplist 文件的规则，从源目录打包文件到 ZIP 压缩包。
+
+    处理规则时，先处理所有的忽略规则，生成忽略列表，然后再处理添加规则。
+    当一个文件被添加规则匹配并且也在忽略列表中时，会显示[忽略]信息。
 
     :param source_dir: 要打包文件的来源目录。
     :param ziplist_path: .ziplist 配置文件的路径。
@@ -27,6 +189,35 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
         return
 
     # --- 1. 解析 .ziplist 文件 ---
+    rules = parse_ziplist_file(ziplist_path)
+
+    # --- 2. 先处理所有的忽略规则，建立忽略文件列表 ---
+    source_dir_abs = os.path.abspath(source_dir)
+    ignored_files = process_ignore_rules(rules, source_dir_abs)
+
+    # --- 3. 然后处理添加规则 ---
+    files_to_add = process_add_rules(rules, source_dir_abs, ignored_files)
+
+    # --- 4. 执行打包 ---
+    if not files_to_add:
+        print(u"\n没有需要打包的文件，操作终止。")
+        return
+
+    # 创建输出目录
+    out_dir = os.path.dirname(output_zip_path)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    # 打包文件
+    create_zip_file(files_to_add, output_zip_path)
+
+def parse_ziplist_file(ziplist_path):
+    """
+    解析 .ziplist 文件内容，返回规则列表。
+
+    :param ziplist_path: .ziplist 配置文件的路径
+    :return: 规则列表，每个规则是一个字典，包含 source、dest 和 negative 字段
+    """
     rules = []
     # Use io.open for Python 2.7 compatibility with encoding
     with io.open(ziplist_path, 'r', encoding='utf-8') as f:
@@ -59,153 +250,16 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
             # Store rule with its type (positive or negative)
             rules.append({'source': source_pattern, 'dest': dest_pattern, 'negative': is_negative})
 
-    # --- 2. 根据规则搜集和排除文件 (顺序处理) ---
-    # 使用列表来存储要添加的文件，每个元素是一个元组 (源文件路径, 目标路径)
-    # 这样允许同一个源文件出现多次，每次都有不同的目标路径
-    files_to_add = []
-    # 用集合来记录已经被删除的源文件路径，用于处理忽略规则
-    ignored_files = set()
-    source_dir_abs = os.path.abspath(source_dir)
+    return rules
 
-    print(u"--- 开始处理打包规则 (严格按顺序) ---")
-    for rule in rules:
-        source_pattern = rule['source']
-        dest_pattern = rule['dest']
+def create_zip_file(files_to_add, output_zip_path):
+    """
+    将指定的文件列表打包到 ZIP 文件中。
 
-        # 构建完整的 glob 搜索模式
-        glob_pattern = os.path.join(source_dir_abs, source_pattern)
-
-        # --- Python 2.7 glob backport for recursive=True ---
-        matched_paths = []
-        if '**' in source_pattern:
-            # 使用 os.walk 和 fnmatch 模拟 Python 3 中 glob 的 recursive=True 功能
-            # 这比 Py3 的实现效率低，但对于保证功能正确性是可靠的标准库方案
-            for root, dirnames, filenames in os.walk(source_dir_abs):
-                # 同时检查目录和文件
-                for item in dirnames + filenames:
-                    full_path = os.path.join(root, item)
-                    relative_path = os.path.relpath(full_path, source_dir_abs)
-
-                    # fnmatch 需要将路径分隔符统一为'/'，且不支持'**'
-                    # 我们用 '*' 替换 '**'，因为 os.walk 已经处理了递归，这里的效果是匹配任意字符
-                    pattern_for_fnmatch = source_pattern.replace('**', '*').replace(os.path.sep, '/')
-                    relative_path_for_fnmatch = relative_path.replace(os.path.sep, '/')
-
-                    if fnmatch.fnmatch(relative_path_for_fnmatch, pattern_for_fnmatch):
-                        matched_paths.append(full_path)
-        else:
-            # 对于不含'**'的普通模式，直接使用 glob
-            matched_paths = glob.glob(glob_pattern)
-        # --- End of backport ---
-
-        # <<< NEW LOGIC: Handle positive and negative rules differently >>>
-        if not rule['negative']:
-            # --- 这是个普通(添加)规则 ---
-            if not matched_paths:
-                # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
-                print(u"\n!!! MISSING: {0}".format(rule['source']))
-                print(u"--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
-                raw_input()
-                sys.exit(2)
-
-            print(u"规则: '{0}'".format(rule['source']))
-            for found_abs_path in matched_paths:
-                # 只处理文件，跳过目录
-                if not os.path.isfile(found_abs_path):
-                    continue
-
-                # --- 3. 计算文件在压缩包内的目标路径 (arcname) ---
-                arcname = ''
-                relative_found_path = os.path.relpath(found_abs_path, source_dir_abs)
-
-                if dest_pattern is None:
-                    # 如果规则不包含 '->'
-                    if '**' in source_pattern:
-                        # 规则: Sounds/**
-                        # 效果: 将 Sounds/sub/c.ogg 打包为 sub/c.ogg (保留相对路径)
-                        # 实现方式：从文件的相对路径中，移除模式中的静态基本路径
-                        pattern_base = source_pattern.split('**')[0]
-
-                        # 如果 pattern_base 为空（例如规则是 '**/*.dll'），则不移除任何部分
-                        if pattern_base:
-                            arcname = os.path.relpath(relative_found_path, pattern_base)
-                        else:
-                            arcname = relative_found_path
-                    else:
-                        # 规则: Debug/File.dll 或 Sounds/*.*
-                        # 效果: 打包到压缩包根目录，只保留文件名（扁平化）
-                        arcname = os.path.basename(relative_found_path)
-                else:
-                    # 规则中包含 '->'
-                    if '**' in source_pattern:
-                        # 规则: Sounds/** -> Sounds1/**
-                        # 效果: 递归地将 Sounds 下所有文件和目录结构复制到 Sounds1 下
-                        base_src = source_pattern.split('**')[0]
-                        wildcard_match = os.path.relpath(relative_found_path, base_src)
-                        base_dest = dest_pattern.split('**')[0]
-                        arcname = os.path.join(base_dest, wildcard_match)
-                    elif '*' in source_pattern:
-                        # 规则: Sounds/*.* -> Sounds1/*.*
-                        # 效果: 将 Sounds 目录下的文件打包到 Sounds1 目录下
-                        src_parent_dir = os.path.dirname(source_pattern)
-                        dest_parent_dir = os.path.dirname(dest_pattern)
-                        file_name = os.path.basename(relative_found_path)
-
-                        # 如果源模式是类似 `*.*` 这样没有目录的，则直接用目标目录
-                        if not src_parent_dir:
-                            arcname = os.path.join(dest_parent_dir, file_name)
-                        else:
-                            # 保持相对路径结构
-                            relative_to_src_parent = os.path.relpath(relative_found_path, src_parent_dir)
-                            arcname = os.path.join(dest_parent_dir, relative_to_src_parent)
-                    else:
-                        # 规则: Debug/Agent.exe -> Release/Agent.exe
-                        # 效果: 精确重命名
-                        arcname = dest_pattern
-
-                # 统一压缩包内的路径分隔符为 '/'
-                arcname = arcname.replace(os.path.sep, '/')
-                # In Python 2, paths from os functions might be bytes, ensure they are str
-                if not isinstance(found_abs_path, str):
-                    found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
-                if not isinstance(arcname, str):
-                    arcname = arcname.decode(sys.getfilesystemencoding())
-
-                # 如果文件没有被忽略规则排除，就添加它
-                if found_abs_path not in ignored_files:
-                    files_to_add.append((found_abs_path, arcname))
-                    print(u"  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
-
-        else:
-            # --- 这是个忽略(!)规则 ---
-            print(u"规则: '!{0}'".format(rule['source']))
-            for found_abs_path in matched_paths:
-                # 将要忽略的文件路径添加到忽略集合中
-                if not isinstance(found_abs_path, str):
-                    found_abs_path = found_abs_path.decode(sys.getfilesystemencoding())
-
-                # 只要是文件（不是目录），就输出忽略信息
-                if os.path.isfile(found_abs_path):
-                    relative_path = os.path.relpath(found_abs_path, source_dir_abs)
-                    print(u"  [忽略] '{0}'".format(relative_path))
-
-                ignored_files.add(found_abs_path)
-
-                # 从待添加列表中移除所有使用这个源文件的条目
-                files_to_add = [(src, arc) for src, arc in files_to_add if src != found_abs_path]
-
-
-    # --- 4. 执行打包 ---
-    if not files_to_add:
-        print(u"\n没有需要打包的文件，操作终止。")
-        return
-
+    :param files_to_add: 要添加到压缩包的文件列表，每个元素是一个元组 (源文件路径, 压缩包内路径)
+    :param output_zip_path: 输出的 ZIP 文件路径
+    """
     print(u"\n--- 开始创建 ZIP 文件: {0} ---".format(output_zip_path))
-    # 确保输出目录存在
-    # os.makedirs(os.path.dirname(output_zip_path) or '.', exist_ok=True) # exist_ok not in Py2
-    out_dir = os.path.dirname(output_zip_path)
-    if out_dir and not os.path.exists(out_dir):
-        os.makedirs(out_dir)
 
     # 使用字典来记录每个目标路径被使用的情况
     arcname_sources = {}
