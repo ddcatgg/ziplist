@@ -94,12 +94,12 @@ def process_ignore_rules(rules, source_dir_abs):
     :return: 被忽略文件的绝对路径集合
     """
     ignored_files = set()
-    print(u"--- 处理忽略规则 ---")
+    print("--- 处理忽略规则 ---")
 
     for rule in rules:
         if rule['negative']:
             source_pattern = rule['source']
-            print(u"规则: '!{0}'".format(source_pattern))
+            print("规则: '!{0}'".format(source_pattern))
 
             matched_paths = find_matching_files(source_dir_abs, source_pattern)
 
@@ -125,7 +125,7 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
     # 这样允许同一个源文件出现多次，每次都有不同的目标路径
     files_to_add = []
 
-    print(u"\n--- 处理添加规则 ---")
+    print("\n--- 处理添加规则 ---")
     for rule in rules:
         if not rule['negative']:
             source_pattern = rule['source']
@@ -137,14 +137,16 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
             # --- 这是个普通(添加)规则 ---
             if not matched_paths:
                 # <<< REQUIREMENT 2: MODIFIED WARNING AND PAUSE >>>
-                print(u"\n!!! MISSING: {0}".format(rule['source']))
-                print(u"--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
-                if sys.version_info[0] < 3:
-                    input = raw_input  # Python 2
-                input()  # Python 3
+                print("\n!!! MISSING: {0}".format(rule['source']))
+                print("--- 规则未匹配到任何文件，请检查路径或文件名。按回车键继续... ---")
+                try:
+                    raw_input()  # Python 2
+                except KeyboardInterrupt:
+                    print("\n操作被用户取消")
+                    sys.exit(1)
                 sys.exit(2)
 
-            print(u"规则: '{0}'".format(source_pattern))
+            print("规则: '{0}'".format(source_pattern))
             for found_abs_path in matched_paths:
                 # 只处理文件，跳过目录
                 if not os.path.isfile(found_abs_path):
@@ -162,10 +164,10 @@ def process_add_rules(rules, source_dir_abs, ignored_files):
 
                 # 检查文件是否被忽略规则排除
                 if found_abs_path in ignored_files:
-                    print(u"  [忽略] '{0}'".format(relative_found_path))
+                    print("  [忽略] '{0}'".format(relative_found_path))
                 else:
                     files_to_add.append((found_abs_path, arcname))
-                    print(u"  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
+                    print("  [添加] '{0}' -> '{1}'".format(relative_found_path, arcname))
 
     return files_to_add
 
@@ -182,10 +184,10 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
     """
     # 确保源目录和配置文件存在
     if not os.path.isdir(source_dir):
-        print(u"错误：源目录 '{0}' 不存在。".format(source_dir))
+        print("错误：源目录 '{0}' 不存在。".format(source_dir))
         return
     if not os.path.isfile(ziplist_path):
-        print(u"错误：配置文件 '{0}' 不存在。".format(ziplist_path))
+        print("错误：配置文件 '{0}' 不存在。".format(ziplist_path))
         return
 
     # --- 1. 解析 .ziplist 文件 ---
@@ -200,7 +202,7 @@ def create_zip_from_list(source_dir, ziplist_path, output_zip_path):
 
     # --- 4. 执行打包 ---
     if not files_to_add:
-        print(u"\n没有需要打包的文件，操作终止。")
+        print("\n没有需要打包的文件，操作终止。")
         return
 
     # 创建输出目录
@@ -259,7 +261,7 @@ def create_zip_file(files_to_add, output_zip_path):
     :param files_to_add: 要添加到压缩包的文件列表，每个元素是一个元组 (源文件路径, 压缩包内路径)
     :param output_zip_path: 输出的 ZIP 文件路径
     """
-    print(u"\n--- 开始创建 ZIP 文件: {0} ---".format(output_zip_path))
+    print("\n--- 开始创建 ZIP 文件: {0} ---".format(output_zip_path))
 
     # 使用字典来记录每个目标路径被使用的情况
     arcname_sources = {}
@@ -271,24 +273,24 @@ def create_zip_file(files_to_add, output_zip_path):
                 # 如果是同一个源文件要添加到不同位置，这是允许的
                 # 如果是不同源文件要添加到同一个位置，这是需要警告的
                 if source_path != arcname_sources[arcname]:
-                    print(u"警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖 '{2}'。".format(
+                    print("警告：压缩包内路径 '{0}' 重复，源文件 '{1}' 将会覆盖 '{2}'。".format(
                         arcname, source_path, arcname_sources[arcname]))
                     has_duplicates = True
-            # arcname must be a byte string in py2 zipfile
+            # 在 Python 2 中，zipfile 需要 byte string
             zipf.write(source_path, arcname.encode('utf-8'))
             arcname_sources[arcname] = source_path
 
     if has_duplicates:
-         print(u"\n提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。")
+         print("\n提示：打包过程中存在同名文件覆盖，请检查您的 .ziplist 规则。")
 
-    print(u"\n成功！总共打包了 {0} 个文件到 '{1}'。".format(len(files_to_add), output_zip_path))
+    print("\n成功！总共打包了 {0} 个文件到 '{1}'。".format(len(files_to_add), output_zip_path))
     time.sleep(2)
 
 
 # (测试函数保留，但不再从主程序调用)
 def setup_test_environment(base_dir="test_project"):
     """创建一个用于测试的文件结构。"""
-    print(u"--- 正在创建测试环境 at '{0}' ---".format(base_dir))
+    print("--- 正在创建测试环境 at '{0}' ---".format(base_dir))
     if os.path.exists(base_dir):
         shutil.rmtree(base_dir)
 
@@ -311,12 +313,12 @@ def setup_test_environment(base_dir="test_project"):
             os.makedirs(out_dir)
         with open(full_path, 'w') as f:
             f.write("this is {0}".format(p))
-    print(u"测试文件创建完毕。")
+    print("测试文件创建完毕。")
 
 def create_test_ziplist(filepath=".ziplist"):
     """创建一个用于测试的 .ziplist 文件。"""
-    print(u"--- 正在创建测试配置文件 at '{0}' ---".format(filepath))
-    content = u"""
+    print("--- 正在创建测试配置文件 at '{0}' ---".format(filepath))
+    content = """
 # 这是一个演示 '!' 忽略语法的 .ziplist 文件
 
 # 1. 首先，包含 Sounds 目录下的所有内容，保留其内部目录结构
@@ -339,7 +341,7 @@ Ping.dll
 """
     with io.open(filepath, 'w', encoding='utf-8') as f:
         f.write(content)
-    print(u"测试配置文件创建完毕。")
+    print("测试配置文件创建完毕。")
 
 
 if __name__ == '__main__':
@@ -354,13 +356,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # 获取 .ziplist 文件的绝对路径
-    # In Py2, argv can be bytes, decode it
+    # 在 Python 2 中，命令行参数是 str 类型（bytes），需要解码
     ziplist_arg = args.ziplist_path.decode(sys.getfilesystemencoding())
     ziplist_abs_path = os.path.abspath(ziplist_arg)
 
     # 检查文件是否存在
     if not os.path.isfile(ziplist_abs_path):
-        print(u"错误：指定的配置文件不存在: {0}".format(ziplist_abs_path))
+        # ziplist_abs_path 现在是 unicode，可以安全地格式化
+        print("错误：指定的配置文件不存在: {0}".format(ziplist_abs_path))
         sys.exit(1) # 以错误码退出
 
     # 约定：源文件目录就是 .ziplist 文件所在的目录
@@ -368,12 +371,12 @@ if __name__ == '__main__':
 
     # 根据 .ziplist 的文件名，生成对应的 .zip 文件名
     base_name = os.path.splitext(os.path.basename(ziplist_abs_path))[0]
-    output_zip_path = os.path.join(source_dir, u"{0}.zip".format(base_name))
+    output_zip_path = os.path.join(source_dir, "{0}.zip".format(base_name))
 
     print("="*60)
-    print(u"源文件目录: {0}".format(source_dir))
-    print(u"配置文件:     {0}".format(ziplist_abs_path))
-    print(u"输出压缩包:   {0}".format(output_zip_path))
+    print("源文件目录: {0}".format(source_dir))
+    print("配置文件:     {0}".format(ziplist_abs_path))
+    print("输出压缩包:   {0}".format(output_zip_path))
     print("="*60)
 
     # 调用核心功能函数
